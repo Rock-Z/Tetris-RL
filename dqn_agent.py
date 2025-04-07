@@ -10,31 +10,32 @@ from collections import deque
 class DQN(nn.Module):
     def __init__(self, input_shape, num_actions):
         super(DQN, self).__init__()
-        self.conv1 = nn.Conv2d(input_shape[0], 32, kernel_size=3, stride=1)
-        self.conv2 = nn.Conv2d(32, 64, kernel_size=3, stride=1)
-        self.conv3 = nn.Conv2d(64, 64, kernel_size=3, stride=1)
+        # Convolutional layers in a sequential container
+        self.features = nn.Sequential(
+            nn.Conv2d(4, 64, 3, stride=1, padding=1),
+            nn.ReLU(),
+            nn.Conv2d(64, 128, 3, stride=1, padding=1),
+            nn.ReLU(),
+            nn.Conv2d(128, 128, 3, stride=1),
+            nn.ReLU()
+        )
         
-        # Calculate the size of the flattened conv output
-        conv_output_size = self._get_conv_output(input_shape)
+        # Calculate output size
+        test_input = torch.zeros(1, *input_shape)
+        test_out = self.features(test_input)
+        conv_output_size = int(np.prod(test_out.shape))
         
-        self.fc1 = nn.Linear(conv_output_size, 512)
-        self.fc2 = nn.Linear(512, num_actions)
-    
-    def _get_conv_output(self, shape):
-        with torch.no_grad():
-            input = torch.zeros(1, *shape)
-            x = F.relu(self.conv1(input))
-            x = F.relu(self.conv2(x))
-            x = F.relu(self.conv3(x))
-            return int(np.prod(x.shape))
-    
+        # Fully connected layers in a sequential container
+        self.classifier = nn.Sequential(
+            nn.Linear(conv_output_size, 512),
+            nn.ReLU(),
+            nn.Linear(512, num_actions)
+        )
+        
     def forward(self, x):
-        x = F.relu(self.conv1(x))
-        x = F.relu(self.conv2(x))
-        x = F.relu(self.conv3(x))
+        x = self.features(x)
         x = x.view(x.size(0), -1)
-        x = F.relu(self.fc1(x))
-        return self.fc2(x)
+        return self.classifier(x)
 
 class ReplayMemory:
     def __init__(self, capacity):
@@ -67,14 +68,15 @@ class DQNAgent:
         # Hyperparameters
         self.gamma = 0.99
         self.epsilon = 1.0
-        self.epsilon_min = 0.1
+        self.epsilon_min = 0.01
         self.epsilon_decay = 0.995
-        self.learning_rate = 0.0001
-        self.update_target_every = 10
+        self.learning_rate = 1e-4
+        self.update_target_every = 1000
         self.batch_size = 32
+        self.tau = 1.0  # Parameter for soft target network updates
         
         # Replay memory
-        self.memory = ReplayMemory(10000)
+        self.memory = ReplayMemory(1000000)
         self.optimizer = optim.Adam(self.policy_net.parameters(), lr=self.learning_rate)
         
         # Training step counter
@@ -97,37 +99,36 @@ class DQNAgent:
         transitions = self.memory.sample(self.batch_size)
         batch = list(zip(*transitions))
         
-        # Extract and stack batch components properly
-        state_batch = torch.FloatTensor(np.stack(batch[0])).to(self.device)  # Shape: (batch, channels, height, width)
+        # Convert batches to tensors
+        state_batch = torch.FloatTensor(np.stack(batch[0])).to(self.device)
         action_batch = torch.LongTensor(batch[1]).unsqueeze(1).to(self.device)
         next_state_batch = torch.FloatTensor(np.stack(batch[2])).to(self.device)
         reward_batch = torch.FloatTensor(batch[3]).unsqueeze(1).to(self.device)
         done_batch = torch.FloatTensor(batch[4]).unsqueeze(1).to(self.device)
         
-        # Compute current Q values
+        # Double DQN: Use policy net to select action, target net to evaluate it
+        with torch.no_grad():
+            next_action = self.policy_net(next_state_batch).max(1)[1].unsqueeze(1)
+            next_q_values = self.target_net(next_state_batch).gather(1, next_action)
+            target_q_values = reward_batch + (self.gamma * next_q_values * (1 - done_batch))
+        
         current_q_values = self.policy_net(state_batch).gather(1, action_batch)
         
-        # Compute next Q values
-        with torch.no_grad():
-            next_q_values = self.target_net(next_state_batch).max(1, keepdim=True)[0]
-            
-        # Compute target Q values
-        target_q_values = reward_batch + (self.gamma * next_q_values * (1 - done_batch))
-        
-        # Compute loss
+        # Huber loss for better stability
         loss = F.smooth_l1_loss(current_q_values, target_q_values)
         
-        # Optimize the model
         self.optimizer.zero_grad()
         loss.backward()
         for param in self.policy_net.parameters():
             param.grad.data.clamp_(-1, 1)
         self.optimizer.step()
         
-        # Update target network
-        self.training_step += 1
+        # Use tau for target network update
         if self.training_step % self.update_target_every == 0:
-            self.target_net.load_state_dict(self.policy_net.state_dict())
+            for target_param, policy_param in zip(self.target_net.parameters(), self.policy_net.parameters()):
+                target_param.data.copy_(self.tau * policy_param.data + (1.0 - self.tau) * target_param.data)
+        
+        self.training_step += 1
         
         # Decay epsilon
         if self.epsilon > self.epsilon_min:

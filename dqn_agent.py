@@ -27,9 +27,11 @@ class DQN(nn.Module):
         
         # Fully connected layers in a sequential container
         self.classifier = nn.Sequential(
-            nn.Linear(conv_output_size, 512),
+            nn.Linear(conv_output_size, 128),
             nn.ReLU(),
-            nn.Linear(512, num_actions)
+            nn.Linear(128, 128),
+            nn.ReLU(),
+            nn.Linear(128, num_actions)
         )
         
     def forward(self, x):
@@ -71,7 +73,7 @@ class DQNAgent:
         self.epsilon_min = 0.01
         self.epsilon_decay = 0.995
         self.learning_rate = 1e-4
-        self.update_target_every = 1000
+        self.update_target_every = 4
         self.batch_size = 32
         self.tau = 1.0  # Parameter for soft target network updates
         
@@ -114,8 +116,7 @@ class DQNAgent:
         
         current_q_values = self.policy_net(state_batch).gather(1, action_batch)
         
-        # Huber loss for better stability
-        loss = F.smooth_l1_loss(current_q_values, target_q_values)
+        loss = F.mse_loss(current_q_values, target_q_values)
         
         self.optimizer.zero_grad()
         loss.backward()

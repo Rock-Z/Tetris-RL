@@ -6,6 +6,8 @@ import os
 from dqn_agent import DQNAgent, ReplayMemory
 
 from tetris_gymnasium.envs.tetris import Tetris
+from tetris_gymnasium.mappings.rewards import RewardsMapping
+
 
 # Set device
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -52,13 +54,13 @@ def record_episode(env, agent, filename):
 
 def train_dqn(env, agent, num_episodes=2000, max_steps=10000):
     # Update hyperparameters for better exploration
-    agent.memory = ReplayMemory(1000000)
+    agent.memory = ReplayMemory(1_000_000)
     agent.gamma = 0.99
     agent.epsilon = 1.0
     agent.epsilon_min = 0.05  
     agent.epsilon_decay = 1 - 0.05/num_episodes  
-    agent.learning_rate = 3e-4 
-    agent.update_target_every = 100  
+    agent.learning_rate = 1e-4 
+    agent.update_target_every = 2
     agent.batch_size = 512
     agent.tau = 0.005  
     
@@ -75,6 +77,8 @@ def train_dqn(env, agent, num_episodes=2000, max_steps=10000):
             # Select and perform an action
             action = agent.select_action(state)
             next_state, reward, terminated, truncated, info = env.step(action)
+            if not terminated:
+                reward += 0.05 # alive bonus
             done = terminated or truncated
             
             # Track lines cleared
@@ -119,14 +123,17 @@ def train_dqn(env, agent, num_episodes=2000, max_steps=10000):
             print(f"Saved model and episode recording: {gif_filename}")
     
     # Save final model and episode
-    agent.save("dqn_model_final.pth")
-    record_episode(env, agent, "final_episode.gif")
+    agent.save("checkpoints/dqn_model_final.pth")
+    record_episode(env, agent, "gifs/final_episode.gif")
     
     return scores
 
 if __name__ == "__main__":
     # Create the environment
-    env = gym.make("tetris_gymnasium/Tetris", render_mode="rgb_array")
+    rewards_mapping = RewardsMapping()
+    rewards_mapping.alife = 0
+    rewards_mapping.game_over = -1
+    env = gym.make("tetris_gymnasium/Tetris", render_mode="rgb_array", rewards_mapping=rewards_mapping)
     
     # Get environment dimensions
     state, _ = env.reset()

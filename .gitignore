@@ -11,3 +11,7 @@ wheels/
 
 # Model weights
 checkpoints
+
+gif_archive
+
+slurm-*.out

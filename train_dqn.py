@@ -109,7 +109,7 @@ def log_to_csv(filename, episode, avg_score, avg_lines, epsilon, loss):
         writer = csv.writer(csvfile)
         writer.writerow([episode, avg_score, avg_lines, epsilon, loss if loss else 'N/A'])
 
-def train_dqn(envs, agent, num_envs=4, num_episodes=10000, max_steps=10000):
+def train_dqn(envs, agent, num_envs=4, num_episodes=100_000, max_steps=10000):
     # Update hyperparameters for better exploration
     agent.memory = ReplayMemory(100_000)
     agent.gamma = 0.99
@@ -198,7 +198,7 @@ def train_dqn(envs, agent, num_envs=4, num_episodes=10000, max_steps=10000):
                 total_episodes += 1
                 
                 # Print progress and log to CSV
-                if total_episodes % (num_episodes // 100) == 0:
+                if total_episodes % 100 == 0:
                     avg_score = np.mean(scores[-100:]) if scores else 0
                     avg_lines = np.mean(lines_cleared_history[-100:]) if lines_cleared_history else 0
                     print(f"Episode {total_episodes}, Avg Score: {avg_score:.2f}, "
@@ -232,7 +232,7 @@ def train_dqn(envs, agent, num_envs=4, num_episodes=10000, max_steps=10000):
     return scores
 
 if __name__ == "__main__":
-    num_envs = 4
+    num_envs = 8
     # Create vectorized environment
     env_fns = [make_env(i) for i in range(num_envs)]
     envs = AsyncVectorEnv(env_fns)

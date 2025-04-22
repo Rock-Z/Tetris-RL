@@ -4,6 +4,7 @@ from gymnasium.vector import AsyncVectorEnv
 import torch
 import imageio
 import os
+import csv
 from dqn_agent import DQNAgent, ReplayMemory
 
 from tetris_gymnasium.envs.tetris import Tetris
@@ -93,6 +94,21 @@ def record_episode(agent, filename):
     # Save as GIF
     imageio.mimsave(filename, frames, fps=10)
 
+def init_csv_logger(filename):
+    """Initialize CSV file with headers."""
+    # Create directory if it doesn't exist
+    os.makedirs(os.path.dirname(filename), exist_ok=True)
+    with open(filename, 'w', newline='') as csvfile:
+        writer = csv.writer(csvfile)
+        writer.writerow(['Episode', 'Average_Score', 'Average_Lines', 'Epsilon', 'Loss'])
+    return filename
+
+def log_to_csv(filename, episode, avg_score, avg_lines, epsilon, loss):
+    """Append a row of data to the CSV file."""
+    with open(filename, 'a', newline='') as csvfile:
+        writer = csv.writer(csvfile)
+        writer.writerow([episode, avg_score, avg_lines, epsilon, loss if loss else 'N/A'])
+
 def train_dqn(envs, agent, num_envs=4, num_episodes=10000, max_steps=10000):
     # Update hyperparameters for better exploration
     agent.memory = ReplayMemory(100_000)
@@ -107,6 +123,15 @@ def train_dqn(envs, agent, num_envs=4, num_episodes=10000, max_steps=10000):
     
     scores = []
     lines_cleared_history = []
+    losses = []
+    
+    # Ensure directories exist
+    os.makedirs("checkpoints", exist_ok=True)
+    os.makedirs("gifs", exist_ok=True)
+    os.makedirs("logs", exist_ok=True)
+    
+    # Initialize CSV logger
+    log_file = init_csv_logger("logs/training_stats.csv")
     
     # Track episodes per environment
     episode_counts = [0] * num_envs
@@ -120,13 +145,25 @@ def train_dqn(envs, agent, num_envs=4, num_episodes=10000, max_steps=10000):
     current_scores = np.zeros(num_envs)
     current_lines_cleared = np.zeros(num_envs)
     
+    # Track steps per environment for max_steps truncation
+    steps_in_episode = np.zeros(num_envs, dtype=int)
+    
+    current_loss = None
+    
     while total_episodes < num_episodes:
         # Select and perform actions for all environments
         actions = agent.select_action(states.to(device))
-        next_states, rewards, terminateds, truncateds, infos = envs.step(actions)
+        next_states, rewards, terminateds, truncated, infos = envs.step(actions)
+        
+        # Increment steps for each environment
+        steps_in_episode += 1
+        
+        # Check for environments that have reached max_steps
+        max_steps_reached = steps_in_episode >= max_steps
+        truncated = np.logical_or(truncated, max_steps_reached)
         
         # Apply alive bonus
-        dones = terminateds | truncateds
+        dones = terminateds | truncated
         rewards = np.where(~terminateds, rewards + 0.05, rewards)  # alive bonus
         
         # Process next states
@@ -156,15 +193,19 @@ def train_dqn(envs, agent, num_envs=4, num_episodes=10000, max_steps=10000):
                 # Reset tracking for this environment
                 current_scores[i] = 0
                 current_lines_cleared[i] = 0
+                steps_in_episode[i] = 0  # Reset steps counter
                 episode_counts[i] += 1
                 total_episodes += 1
                 
-                # Print progress
+                # Print progress and log to CSV
                 if total_episodes % (num_episodes // 100) == 0:
                     avg_score = np.mean(scores[-100:]) if scores else 0
                     avg_lines = np.mean(lines_cleared_history[-100:]) if lines_cleared_history else 0
                     print(f"Episode {total_episodes}, Avg Score: {avg_score:.2f}, "
                           f"Avg Lines: {avg_lines:.2f}, Epsilon: {agent.epsilon:.2f}")
+                    
+                    # Log stats to CSV
+                    log_to_csv(log_file, total_episodes, avg_score, avg_lines, agent.epsilon, current_loss)
                 
                 # Save model and record periodically
                 if total_episodes % (num_episodes // 10) == 0:
@@ -180,6 +221,9 @@ def train_dqn(envs, agent, num_envs=4, num_episodes=10000, max_steps=10000):
         
         # Perform optimization step
         loss = agent.train()
+        current_loss = loss
+        if loss is not None:
+            losses.append(loss)
     
     # Save final model and episode
     agent.save("checkpoints/dqn_model_final.pth")
@@ -188,9 +232,7 @@ def train_dqn(envs, agent, num_envs=4, num_episodes=10000, max_steps=10000):
     return scores
 
 if __name__ == "__main__":
-    # Number of parallel environments
-    num_envs = 8
-    
+    num_envs = 4
     # Create vectorized environment
     env_fns = [make_env(i) for i in range(num_envs)]
     envs = AsyncVectorEnv(env_fns)

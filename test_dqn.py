@@ -42,7 +42,6 @@ def test_agent(env, agent, num_episodes=10, render=True):
     return scores
 
 if __name__ == "__main__":
-    # script has 2 options: ansi print or save gif
     parser = argparse.ArgumentParser(description="Test a DQN agent on Tetris.")
     parser.add_argument("--gif", action="store_true", help="Record a GIF of the agent playing.")
     parser.add_argument("--ansi", action="store_true", help="Print the game state in ANSI format.")

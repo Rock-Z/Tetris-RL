@@ -74,7 +74,7 @@ class DQNAgent:
         self.epsilon_decay = 0.995
         self.learning_rate = 1e-4
         self.update_target_every = 4
-        self.batch_size = 32
+        self.batch_size = 128
         self.tau = 1.0  # Parameter for soft target network updates
         
         # Replay memory
@@ -84,15 +84,21 @@ class DQNAgent:
         # Training step counter
         self.training_step = 0
     
-    def select_action(self, state):
-        if random.random() < self.epsilon:
-            return random.randrange(self.num_actions)
+    def select_action(self, state, epsilon=None):
+        if epsilon is None:
+            epsilon = self.epsilon
+        if random.random() < epsilon:
+            if len(state.shape) == 3:
+               return np.random.randint(0, self.num_actions - 1)
+            elif len(state.shape) == 4:
+                return np.random.randint(0, self.num_actions, size=(state.shape[0],))
         else:
             # Convert state to tensor and add batch dimension
-            state = torch.FloatTensor(state).unsqueeze(0).to(self.device)  # Shape: (1, 4, 24, 18)
+            if len(state.shape) == 3:
+                state = state.unsqueeze(0)
             with torch.no_grad():
                 q_values = self.policy_net(state)
-            return q_values.max(1)[1].item()
+            return torch.argmax(q_values, dim=-1).cpu().numpy()
     
     def train(self):
         if len(self.memory) < self.batch_size:

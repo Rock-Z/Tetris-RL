@@ -64,7 +64,7 @@ def make_env(idx):
         return env
     return _init
 
-def record_episode(envs, agent, filename):
+def record_episode(agent, filename):
     """Record one episode from the first environment and save it as a GIF."""
     # Create a separate environment for recording
     record_env = gym.make("tetris_gymnasium/Tetris", render_mode="rgb_array")
@@ -175,7 +175,7 @@ def train_dqn(envs, agent, num_envs=4, num_episodes=10000, max_steps=10000):
                     agent.save(os.path.join("checkpoints", model_filename))
                     
                     # Record and save episode
-                    record_episode(envs, agent, gif_filename)
+                    record_episode(agent, gif_filename)
                     print(f"Saved model and episode recording: {gif_filename}")
         
         # Perform optimization step
@@ -183,7 +183,7 @@ def train_dqn(envs, agent, num_envs=4, num_episodes=10000, max_steps=10000):
     
     # Save final model and episode
     agent.save("checkpoints/dqn_model_final.pth")
-    record_episode(envs, agent, "gifs/final_episode.gif")
+    record_episode(agent, "gifs/final_episode.gif")
     
     return scores
 
